@@ -3,7 +3,7 @@ import tensorflow as tf
 import numpy as np
 from PIL import Image
 
-Model = tf.keras.models.load_model(r"D:\Github_Desktop\AI-Powered-Precision-Farming\Crop_Disease_Detection\RiceLeaf\Rice_Model_Building\RiceLeafDiseasePreTrainedModel.keras", compile=False)
+Model = tf.keras.models.load_model(r"F:\MAJOR PROJECT\AI-Powered-Precision-Farming\Crop_Disease_Detection\RiceLeaf\Rice_Model_Building\RiceLeafDiseasePreTrainedModel.keras", compile=False)
 
 class_names = ['Brown Spot', 'Healthy', 'Hispa', 'Leaf Blast', 'Leaf Scald']
 
