@@ -3,45 +3,28 @@ from tensorflow.keras.preprocessing import image
 import numpy as np
 import os
 
-# ----------------------------
-# 1. Load the saved model
-# ----------------------------
-MODEL_PATH = r"D:\Github_Desktop\AI-Powered-Precision-Farming\Crop_Disease_Detection\MaizeLeaf\maize_disease_model.h5"
-model = tf.keras.models.load_model(MODEL_PATH)
-print("✅ Model loaded successfully!")
+# ===================== CONFIG =====================
+model_path = 'maize_disease_model.h5'
+img_path = 'dataset/test/Blight/xyz.jpg'  # <-- change to your image path
+img_size = (224, 224)
+# ==================================================
 
-# ----------------------------
-# 2. Define class names (exact order as your dataset folders)
-# ----------------------------
-class_names = ["Blight", "Common Rust", "Healthy", "Phosphorus Deficiency"]
+# Load model
+model = tf.keras.models.load_model(model_path)
 
-# ----------------------------
-# 3. Prediction function
-# ----------------------------
-def predict_image(img_path):
-    # Load and preprocess
-    img = image.load_img(img_path, target_size=(224, 224))
-    img_array = image.img_to_array(img)
-    img_array = np.expand_dims(img_array, axis=0)
-    img_array = img_array / 255.0  # same normalization as training
+# Get class labels
+train_dir = 'Maize_dataset'
+class_names = sorted(os.listdir(train_dir))
+print("Classes:", class_names)
 
-    # Predict
-    predictions = model.predict(img_array)
-    predicted_class = np.argmax(predictions[0])
-    confidence = np.max(predictions[0]) * 100
+# Load and preprocess image
+img = image.load_img(img_path, target_size=img_size)
+img_array = image.img_to_array(img) / 255.0
+img_array = np.expand_dims(img_array, axis=0)
 
-    print(f"\n📷 Image: {os.path.basename(img_path)}")
-    print(f"Predicted Class: {class_names[predicted_class]}")
-    print(f"Confidence: {confidence:.2f}%")
+# Predict
+pred = model.predict(img_array)
+pred_class = np.argmax(pred, axis=1)[0]
+pred_label = class_names[pred_class]
 
-# ----------------------------
-# 4. Example usage
-# ----------------------------
-if __name__ == "__main__":
-    # Change this to your test image path
-    img_path = r"D:\Github_Desktop\AI-Powered-Precision-Farming\Crop_Disease_Detection\MaizeLeaf\Maize_test\blight1.jpg"
-    
-    if os.path.exists(img_path):
-        predict_image(img_path)
-    else:
-        print(f"❌ File not found: {img_path}")
+print(f"Predicted class: {pred_label}")

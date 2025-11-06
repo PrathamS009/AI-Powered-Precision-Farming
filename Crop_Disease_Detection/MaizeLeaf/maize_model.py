@@ -1,116 +1,150 @@
-import tensorflow as tf
-from tensorflow.keras.preprocessing.image import ImageDataGenerator
-from tensorflow.keras.applications import EfficientNetB2
-from tensorflow.keras import layers, models
-import matplotlib.pyplot as plt
-import numpy as np
 import os
+import numpy as np
+import tensorflow as tf
+import tensorflow_addons as tfa
+from tensorflow.keras.preprocessing.image import ImageDataGenerator
+from vit_keras import vit
+import pandas as pd
+import matplotlib.pyplot as plt
 
-# Paths
-data_dir = r"D:\Github_Desktop\AI-Powered-Precision-Farming\Crop_Disease_Detection\MaizeLeaf\Maize_dataset"
-save_dir = os.path.dirname(__file__)
+# ===================== CONFIG =====================
+DATASET_DIR = r"D:\Github_Desktop\AI-Powered-Precision-Farming\Crop_Disease_Detection\MaizeLeaf\Maize_dataset"  # update your path
+IMAGE_SIZE = 224
+BATCH_SIZE = 16
+EPOCHS = 30
+LR = 1e-4
+# ==================================================
 
-# Parameters
-IMG_SIZE = 224
-BATCH_SIZE = 32
-EPOCHS = 25
+# ===================== AUGMENTATION FUNCTION =====================
+def data_augment(image):
+    p_spatial = tf.random.uniform([], 0, 1.0)
+    p_rotate = tf.random.uniform([], 0, 1.0)
+    p_pixel_1 = tf.random.uniform([], 0, 1.0)
+    p_pixel_2 = tf.random.uniform([], 0, 1.0)
+    p_pixel_3 = tf.random.uniform([], 0, 1.0)
 
-# Data generators
+    image = tf.image.random_flip_left_right(image)
+    image = tf.image.random_flip_up_down(image)
+
+    if p_spatial > 0.75:
+        image = tf.image.transpose(image)
+    if p_rotate > 0.75:
+        image = tf.image.rot90(image, k=3)
+    elif p_rotate > 0.5:
+        image = tf.image.rot90(image, k=2)
+    elif p_rotate > 0.25:
+        image = tf.image.rot90(image, k=1)
+
+    if p_pixel_1 >= 0.4:
+        image = tf.image.random_saturation(image, 0.7, 1.3)
+    if p_pixel_2 >= 0.4:
+        image = tf.image.random_contrast(image, 0.8, 1.2)
+    if p_pixel_3 >= 0.4:
+        image = tf.image.random_brightness(image, 0.1)
+    return image
+
+# ===================== DATA GENERATORS =====================
 datagen = ImageDataGenerator(
-    rescale=1./255,
-    validation_split=0.2
+    rescale=1.0/255,
+    samplewise_center=True,
+    samplewise_std_normalization=True,
+    validation_split=0.2,
+    preprocessing_function=data_augment
 )
 
 train_gen = datagen.flow_from_directory(
-    data_dir,
-    target_size=(IMG_SIZE, IMG_SIZE),
+    DATASET_DIR,
+    target_size=(IMAGE_SIZE, IMAGE_SIZE),
     batch_size=BATCH_SIZE,
-    subset='training'
+    subset="training"
 )
 
 val_gen = datagen.flow_from_directory(
-    data_dir,
-    target_size=(IMG_SIZE, IMG_SIZE),
+    DATASET_DIR,
+    target_size=(IMAGE_SIZE, IMAGE_SIZE),
     batch_size=BATCH_SIZE,
-    subset='validation'
+    subset="validation"
 )
 
-# Compute class weights (helps fix imbalance)
-from sklearn.utils.class_weight import compute_class_weight
-class_weights = compute_class_weight(
-    class_weight='balanced',
-    classes=np.unique(train_gen.classes),
-    y=train_gen.classes
+# ===================== MODEL =====================
+vit_model = vit.vit_b32(
+    image_size=IMAGE_SIZE,
+    activation='softmax',
+    pretrained=True,
+    include_top=False,
+    pretrained_top=False,
+    classes=train_gen.num_classes
 )
-class_weights = dict(enumerate(class_weights))
-print("Class Weights:", class_weights)
 
-# Base Model
-base_model = EfficientNetB2(weights='imagenet', include_top=False, input_shape=(IMG_SIZE, IMG_SIZE, 3))
-base_model.trainable = False
-
-# Custom top layers
-model = models.Sequential([
-    base_model,
-    layers.GlobalAveragePooling2D(),
-    layers.BatchNormalization(),
-    layers.Dropout(0.4),
-    layers.Dense(256, activation='relu'),
-    layers.Dropout(0.3),
-    layers.Dense(4, activation='softmax')
+model = tf.keras.Sequential([
+    vit_model,
+    tf.keras.layers.Flatten(),
+    tf.keras.layers.BatchNormalization(),
+    tf.keras.layers.Dense(256, activation=tfa.activations.gelu),
+    tf.keras.layers.BatchNormalization(),
+    tf.keras.layers.Dropout(0.3),
+    tf.keras.layers.Dense(train_gen.num_classes, activation='softmax')
 ])
 
-model.compile(optimizer='adam', loss='categorical_crossentropy', metrics=['accuracy'])
-model.summary()
+optimizer = tfa.optimizers.RectifiedAdam(learning_rate=LR)
+model.compile(
+    optimizer=optimizer,
+    loss=tf.keras.losses.CategoricalCrossentropy(label_smoothing=0.2),
+    metrics=['accuracy']
+)
 
-# Phase 1 - Train top layers
+# ===================== CALLBACKS =====================
+callbacks = [
+    tf.keras.callbacks.EarlyStopping(monitor='val_accuracy', patience=5, restore_best_weights=True, mode='max'),
+    tf.keras.callbacks.ReduceLROnPlateau(monitor='val_accuracy', factor=0.2, patience=2, min_lr=1e-6, mode='max'),
+    tf.keras.callbacks.ModelCheckpoint('maize_vit_best.h5', save_best_only=True, monitor='val_accuracy', mode='max')
+]
+
+# ===================== TRAIN =====================
+steps_train = train_gen.samples // train_gen.batch_size
+steps_val = val_gen.samples // val_gen.batch_size
+
 history = model.fit(
     train_gen,
+    steps_per_epoch=steps_train,
     validation_data=val_gen,
+    validation_steps=steps_val,
     epochs=EPOCHS,
-    class_weight=class_weights
+    callbacks=callbacks
 )
 
-# Phase 2 - Fine-tune EfficientNet
-base_model.trainable = True
-for layer in base_model.layers[:-30]:
-    layer.trainable = False
+# ===================== SAVE HISTORY =====================
+history_df = pd.DataFrame(history.history)
+history_df.to_csv("maize_training_history.csv", index=False)
+print("📁 Training history saved as 'maize_training_history.csv'")
 
-model.compile(optimizer=tf.keras.optimizers.Adam(1e-5), loss='categorical_crossentropy', metrics=['accuracy'])
-history_finetune = model.fit(
-    train_gen,
-    validation_data=val_gen,
-    epochs=10,
-    class_weight=class_weights
-)
+# ===================== PLOTS =====================
+plt.figure(figsize=(10, 4))
 
-# Save model
-model.save(os.path.join(save_dir, "maize_disease_model.h5"))
-print("✅ Model training complete and saved!")
-
-# Combine both histories for plotting
-acc = history.history['accuracy'] + history_finetune.history['accuracy']
-val_acc = history.history['val_accuracy'] + history_finetune.history['val_accuracy']
-loss = history.history['loss'] + history_finetune.history['loss']
-val_loss = history.history['val_loss'] + history_finetune.history['val_loss']
-
-epochs_range = range(1, len(acc) + 1)
-
-# Plot and save accuracy graph
-plt.figure()
-plt.plot(epochs_range, acc, label='Training Accuracy')
-plt.plot(epochs_range, val_acc, label='Validation Accuracy')
+# Accuracy plot
+plt.subplot(1, 2, 1)
+plt.plot(history.history['accuracy'], label='train_accuracy')
+plt.plot(history.history['val_accuracy'], label='val_accuracy')
+plt.title('Model Accuracy')
+plt.xlabel('Epoch')
+plt.ylabel('Accuracy')
 plt.legend()
-plt.title('Training vs Validation Accuracy')
-plt.savefig(os.path.join(save_dir, "accuracy_plot.png"))
 
-# Plot and save loss graph
-plt.figure()
-plt.plot(epochs_range, loss, label='Training Loss')
-plt.plot(epochs_range, val_loss, label='Validation Loss')
+# Loss plot
+plt.subplot(1, 2, 2)
+plt.plot(history.history['loss'], label='train_loss')
+plt.plot(history.history['val_loss'], label='val_loss')
+plt.title('Model Loss')
+plt.xlabel('Epoch')
+plt.ylabel('Loss')
 plt.legend()
-plt.title('Training vs Validation Loss')
-plt.savefig(os.path.join(save_dir, "loss_plot.png"))
 
-plt.close('all')
-print("📊 Saved accuracy_plot.png and loss_plot.png in:", save_dir)
+plt.tight_layout()
+plt.savefig("maize_training_curves.png", dpi=300)
+plt.show()
+
+print("📊 Plots saved as 'maize_training_curves.png'")
+
+# ===================== SAVE MODEL =====================
+model.save('final_maize_vit_model.h5')
+print("✅ Model training complete. Saved as 'final_maize_vit_model.h5'")

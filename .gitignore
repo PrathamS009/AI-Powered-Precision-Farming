@@ -18,3 +18,4 @@ Yield_Prediction/Yield_Data/
 *.hdf5
 *.keras
 *.tflite
+*.pkl
