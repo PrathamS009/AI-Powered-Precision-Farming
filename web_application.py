@@ -100,7 +100,7 @@ with st.expander("🌱 Crop Disease Detection"):
         "Brinjal": r"Crop_Disease_Detection/BrinjalLeaf/brinjal_model.h5", 
         "Cauliflower": r"Crop_Disease_Detection/CauliflowerLeaf/final_cauliflower_model.h5",
         "Rice": r"Crop_Disease_Detection/RiceLeaf/RiceLeafDiseasePreTrainedModel.keras",
-        "Maize": r"Crop_Disease_Detection/MaizeLeaf/final_maize_vit_model.h5"
+        "Maize": r"Crop_Disease_Detection/MaizeLeaf/maize_vit_best.h5"
     }
 
     label_maps = {

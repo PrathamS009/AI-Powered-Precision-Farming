@@ -11,7 +11,7 @@ import matplotlib.pyplot as plt
 DATASET_DIR = r"D:\Github_Desktop\AI-Powered-Precision-Farming\Crop_Disease_Detection\MaizeLeaf\Maize_dataset"  # update your path
 IMAGE_SIZE = 224
 BATCH_SIZE = 16
-EPOCHS = 30
+EPOCHS = 8
 LR = 1e-4
 # ==================================================
 
