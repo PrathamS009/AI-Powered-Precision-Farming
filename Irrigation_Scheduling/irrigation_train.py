@@ -1,61 +1,59 @@
 import pandas as pd
-import xgboost as xgb
 from sklearn.model_selection import train_test_split
-from sklearn.preprocessing import LabelEncoder
+from sklearn.preprocessing import LabelEncoder, StandardScaler
 from sklearn.metrics import accuracy_score, classification_report, confusion_matrix
-import matplotlib.pyplot as plt
+from sklearn.ensemble import RandomForestClassifier
+from imblearn.over_sampling import SMOTE
 import seaborn as sns
+import matplotlib.pyplot as plt
 import joblib
 
-# === Load cleaned dataset ===
-df = pd.read_csv("Irrigation_Data/cleaned_irrigation_data.csv")
+# === Load and clean ===
+df = pd.read_csv("Irrigation_Data/cleaned_irrigation_data.csv").dropna().drop_duplicates()
 
-# === Separate features and target ===
 X = df.drop("class", axis=1)
 y = df["class"]
 
-# === Encode categorical target ===
+# Encode target
 le = LabelEncoder()
 y = le.fit_transform(y)
 
-# === Encode any categorical features (if present) ===
-for col in X.select_dtypes(include=["object"]).columns:
-    X[col] = LabelEncoder().fit_transform(X[col])
+# Scale numeric features
+scaler = StandardScaler()
+X_scaled = scaler.fit_transform(X)
 
-# === Train-test split ===
-X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42, stratify=y)
+# Balance dataset
+X_bal, y_bal = SMOTE(random_state=42).fit_resample(X_scaled, y)
 
-# === Initialize and train model ===
-model = xgb.XGBClassifier(
-    n_estimators=200,
-    learning_rate=0.1,
-    max_depth=6,
-    subsample=0.8,
-    colsample_bytree=0.8,
+# Split
+X_train, X_test, y_train, y_test = train_test_split(
+    X_bal, y_bal, test_size=0.2, random_state=42, stratify=y_bal
+)
+
+# === Train Random Forest ===
+model = RandomForestClassifier(
+    n_estimators=400,
+    max_depth=10,
+    class_weight="balanced",
     random_state=42,
-    eval_metric="mlogloss"
+    n_jobs=-1
 )
 model.fit(X_train, y_train)
 
-# === Evaluate model ===
+# === Evaluate ===
 y_pred = model.predict(X_test)
-acc = accuracy_score(y_test, y_pred)
+print(f"Accuracy: {accuracy_score(y_test, y_pred):.3f}")
+print("\n", classification_report(y_test, y_pred, target_names=le.classes_))
 
-print(f"Accuracy: {acc:.3f}")
-print("\nClassification Report:\n", classification_report(y_test, y_pred, target_names=le.classes_))
-
-# === Confusion Matrix Plot ===
-plt.figure(figsize=(7, 5))
-sns.heatmap(confusion_matrix(y_test, y_pred), annot=True, fmt="d", cmap="Blues",
-            xticklabels=le.classes_, yticklabels=le.classes_)
-plt.xlabel("Predicted")
-plt.ylabel("Actual")
+sns.heatmap(confusion_matrix(y_test, y_pred), annot=True, fmt="d",
+            cmap="Blues", xticklabels=le.classes_, yticklabels=le.classes_)
 plt.title("Confusion Matrix")
-plt.savefig("irrigation_confusion_matrix.png", dpi=300, bbox_inches="tight")
+plt.tight_layout()
+plt.savefig("rf_confusion_matrix.png", dpi=300)
 plt.close()
 
-# === Save model and encoder ===
-joblib.dump(model, "irrigation_xgb_model.pkl")
+# Save
+joblib.dump(model, "irrigation_rf_model.pkl")
 joblib.dump(le, "class_label_encoder.pkl")
-print("✅ Model and encoder saved successfully.")
-print("📊 Chart saved: 'irrigation_confusion_matrix.png'")
+joblib.dump(scaler, "feature_scaler.pkl")
+print("✅ RF model, encoder, and scaler saved.")

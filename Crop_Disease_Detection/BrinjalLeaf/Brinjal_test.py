@@ -34,5 +34,5 @@ def predict_image(img_path):
 # Example usage
 # -------------------------
 # Replace with your validation image path
-test_image_path = r'D:\Github_Desktop\AI-Powered-Precision-Farming\Crop_Disease_Detection\BrinjalLeaf\Brinjal_dataset\Validation\Fresh\92.jpg'
+test_image_path = r'D:\Github_Desktop\AI-Powered-Precision-Farming\Crop_Disease_Detection\BrinjalLeaf\Brinjal_dataset\Validation_Primary\IMG_2507.jpg'
 predict_image(test_image_path)
