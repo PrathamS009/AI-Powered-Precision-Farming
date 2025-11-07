@@ -189,58 +189,44 @@ with st.expander("🌱 Crop Disease Detection"):
 
 # --------------------------- SECTION 2: Yield Prediction ---------------------------
 with st.expander("🌾 Yield Prediction"):
-    st.subheader("Enter Crop and Field Parameters")
+    st.subheader("Enter Crop and Field Parameters (model expects numeric features)")
 
-    soil_type = st.selectbox("Soil Type", ["Sandy", "Loam", "Chalky", "Silt", "Clay"])
-    crop_type_yield = st.selectbox("Crop Type", ["Maize", "Rice", "Wheat"])
-    rainfall = st.number_input("Rainfall (mm)", min_value=0.0, key="yield_rainfall")
-    temp = st.number_input("Temperature (°C)", min_value=-10.0, key="yield_temp")
-    fertilizer_used = st.selectbox("Fertilizer Used", ["True", "False"], key="yield_fert")
-    irrigation_used = st.selectbox("Irrigation Used", ["True", "False"], key="yield_irrig")
-    weather = st.selectbox("Weather Condition", ["Sunny", "Rainy", "Cloudy"], key="yield_weather")
-    days_to_harvest = st.number_input("Days to Harvest", min_value=0.0, key="yield_days")
+    # Inputs matching test_yield_model.py
+    fertilizer_amt = st.number_input("Fertilizer amount (kg/ha or units)", min_value=0.0, format="%.4f", key="yield_fertilizer")
+    temp_yield = st.number_input("Temperature (°C)", min_value=-50.0, max_value=100.0, format="%.2f", key="yield_temp")
+    N_val = st.number_input("Nitrogen (N)", min_value=0.0, format="%.4f", key="yield_N")
+    P_val = st.number_input("Phosphorus (P)", min_value=0.0, format="%.4f", key="yield_P")
+    K_val = st.number_input("Potassium (K)", min_value=0.0, format="%.4f", key="yield_K")
 
     if st.button("Analyze Yield", key="yield_analyze"):
         st.write("Predicting yield...")
 
-        yield_model_path = r"Yield_Prediction/yield_xgb_model.pkl"
-        encoder_path = r"Yield_Prediction/yield_encoders.pkl"
+        # Path to your model - update if needed
+        yield_model_path = r"Yield_Prediction/With_NPK/yield_model.pkl"
 
-        yield_model = joblib.load(yield_model_path)
-        encoders = joblib.load(encoder_path)
+        # Load model (cached to avoid reloads)
+        @st.cache(allow_output_mutation=True)
+        def _load_yield_model(path):
+            return joblib.load(path)
 
-        data = pd.DataFrame([{
-            "Soil_Type": soil_type,
-            "Crop": crop_type_yield,
-            "Rainfall_mm": rainfall,
-            "Temperature_Celsius": temp,
-            "Fertilizer_Used": fertilizer_used,
-            "Irrigation_Used": irrigation_used,
-            "Weather_Condition": weather,
-            "Days_to_Harvest": days_to_harvest
-        }])
+        try:
+            yield_model = _load_yield_model(yield_model_path)
+        except Exception as e:
+            st.error(f"Failed to load yield model: {e}")
+            st.stop()
 
-        # Encode categorical fields
-        for col in encoders:
-            data[col] = encoders[col].transform(data[col])
+        # Build feature array exactly as your test script
+        X = np.array([[fertilizer_amt, temp_yield, N_val, P_val, K_val]], dtype=float)
 
-        # Convert boolean-like text columns to real bools or ints
-        for col in ["Fertilizer_Used", "Irrigation_Used"]:
-            if col in data.columns:
-                data[col] = data[col].astype(str).str.lower().map({"true": 1, "false": 0}).astype(float)
+        # Predict with safe error handling
+        try:
+            pred = yield_model.predict(X)
+            pred_yield = float(pred[0])
+            st.success(f"Predicted Yield: {pred_yield:.2f} tons per hectare")
+        except Exception as e:
+            st.error(f"Prediction failed: {e}")
+            st.write("Input array shape:", X.shape, "dtype:", X.dtype)
 
-        # Ensure all columns numeric
-        for c in data.columns:
-            if data[c].dtype == "object":
-                try:
-                    data[c] = pd.to_numeric(data[c])
-                except Exception:
-                    pass
-
-        # st.write("Data types before predict:", data.dtypes)
-
-        prediction = yield_model.predict(data)[0]
-        st.success(f"Predicted Yield: {prediction:.2f} tons per hectare")
 
 
 # --------------------------- SECTION 3: Irrigation Scheduling ---------------------------
