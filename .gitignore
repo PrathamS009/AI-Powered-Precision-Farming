@@ -1,5 +1,5 @@
 # Virtual environment
-myvenv/
+AIPPF_venv/
 
 # Datasets
 Crop_Disease_Detection/BajraLeaf/Bajra_dataset/

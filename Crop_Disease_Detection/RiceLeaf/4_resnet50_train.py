@@ -1,7 +1,5 @@
 # ============================================================
-# Rice Leaf Disease Detection - ResNet50
-# Classes: Brown Spot, Hispa, Leaf Blast, Leaf Scald, Healthy
-# Dataset: Kaggle Private Dataset - 'Rice Leaf Disease Dataset'
+# Rice Leaf Disease Detection - ResNet50 (FIXED)
 # ============================================================
 
 import os
@@ -14,6 +12,7 @@ from sklearn.utils.class_weight import compute_class_weight
 import tensorflow as tf
 from tensorflow.keras import layers, models, callbacks
 from tensorflow.keras.applications import ResNet50
+from tensorflow.keras.applications.resnet50 import preprocess_input
 from tensorflow.keras.preprocessing.image import ImageDataGenerator
 
 # ============================================================
@@ -28,26 +27,16 @@ LEARNING_RATE1  = 1e-3
 LEARNING_RATE2  = 1e-5
 DROPOUT_RATE    = 0.5
 
-# --- UPDATE THESE PATHS for your environment ---
-TRAIN_DIR = "/kaggle/input/rice-leaf-disease-dataset/train"
-TEST_DIR  = "/kaggle/input/rice-leaf-disease-dataset/test"
+TRAIN_DIR  = r"E:\GitHub_Desktop\AI-Powered-Precision-Farming\Crop_Disease_Detection\RiceLeaf\Rice_dataset\Train"
+TEST_DIR   = r"E:\GitHub_Desktop\AI-Powered-Precision-Farming\Crop_Disease_Detection\RiceLeaf\Rice_dataset\Validation"
+OUTPUT_DIR = rf"E:\GitHub_Desktop\AI-Powered-Precision-Farming\Crop_Disease_Detection\RiceLeaf\working\{MODEL_NAME}"
 
-# On Google Colab:
-# TRAIN_DIR = "/content/drive/MyDrive/Rice_Leaf_Disease_Dataset/train"
-# TEST_DIR  = "/content/drive/MyDrive/Rice_Leaf_Disease_Dataset/test"
-
-OUTPUT_DIR = f"/kaggle/working/{MODEL_NAME}"
 os.makedirs(OUTPUT_DIR, exist_ok=True)
-
-CLASS_NAMES = ["Brown Spot", "Healthy", "Hispa", "Leaf Blast", "Leaf Scald"]
-NUM_CLASSES = len(CLASS_NAMES)
 
 # ============================================================
 # DATA GENERATORS
-# ResNet50 expects inputs preprocessed with ResNet's preprocess_input
+# NOTE: ResNet uses preprocess_input (NO rescale)
 # ============================================================
-from tensorflow.keras.applications.resnet50 import preprocess_input
-
 train_datagen = ImageDataGenerator(
     preprocessing_function=preprocess_input,
     rotation_range=30,
@@ -87,6 +76,9 @@ test_generator = test_datagen.flow_from_directory(
     class_mode='categorical',
     shuffle=False
 )
+
+CLASS_NAMES = list(train_generator.class_indices.keys())
+NUM_CLASSES = len(CLASS_NAMES)
 
 print(f"\nClass indices: {train_generator.class_indices}")
 print(f"Train samples: {train_generator.samples}")
@@ -154,10 +146,10 @@ def get_callbacks(phase):
     ]
 
 # ============================================================
-# PHASE 1 — Train top layers only
+# PHASE 1 — Train top layers
 # ============================================================
 print("\n" + "="*50)
-print("PHASE 1: Training top layers (base frozen)")
+print("PHASE 1: Training top layers")
 print("="*50)
 
 model = build_model(trainable_base=False)
@@ -166,7 +158,6 @@ model.compile(
     loss='categorical_crossentropy',
     metrics=['accuracy']
 )
-model.summary()
 
 history1 = model.fit(
     train_generator,
@@ -177,13 +168,17 @@ history1 = model.fit(
 )
 
 # ============================================================
-# PHASE 2 — Fine-tune entire network
+# PHASE 2 — Fine-tune last 30 layers (IMPORTANT FIX)
 # ============================================================
 print("\n" + "="*50)
-print("PHASE 2: Fine-tuning entire network")
+print("PHASE 2: Fine-tuning last 30 layers")
 print("="*50)
 
-model.trainable = True
+for layer in model.layers[:-30]:
+    layer.trainable = False
+for layer in model.layers[-30:]:
+    layer.trainable = True
+
 model.compile(
     optimizer=tf.keras.optimizers.Adam(learning_rate=LEARNING_RATE2),
     loss='categorical_crossentropy',
@@ -199,40 +194,29 @@ history2 = model.fit(
 )
 
 # ============================================================
-# SAVE FINAL MODEL
+# SAVE MODEL
 # ============================================================
-final_keras_path = os.path.join(OUTPUT_DIR, f"{MODEL_NAME}_final.keras")
-model.save(final_keras_path)
-print(f"\nModel saved: {final_keras_path}")
-
-# TFLite Export
-converter = tf.lite.TFLiteConverter.from_keras_model(model)
-converter.optimizations = [tf.lite.Optimize.DEFAULT]
-tflite_model = converter.convert()
-tflite_path = os.path.join(OUTPUT_DIR, f"{MODEL_NAME}_final.tflite")
-with open(tflite_path, 'wb') as f:
-    f.write(tflite_model)
-print(f"TFLite model saved: {tflite_path}")
+final_path = os.path.join(OUTPUT_DIR, f"{MODEL_NAME}_final.keras")
+model.save(final_path)
 
 # ============================================================
 # EVALUATION
 # ============================================================
-print("\nEvaluating on test set...")
+print("\nEvaluating...")
 test_loss, test_acc = model.evaluate(test_generator)
-print(f"Test Accuracy: {test_acc:.4f} | Test Loss: {test_loss:.4f}")
+print(f"Accuracy: {test_acc:.4f}")
 
 test_generator.reset()
-preds = model.predict(test_generator, verbose=1)
+preds = model.predict(test_generator)
 pred_classes = np.argmax(preds, axis=1)
 true_classes = test_generator.classes
-class_labels = list(test_generator.class_indices.keys())
 
-print("\nClassification Report:")
-print(classification_report(true_classes, pred_classes, target_names=class_labels))
+print(classification_report(true_classes, pred_classes, target_names=CLASS_NAMES))
 
 # ============================================================
-# PLOTS
+# PLOTS (Training Curves + Confusion Matrix)
 # ============================================================
+
 def merge_histories(h1, h2, key):
     return h1.history[key] + h2.history[key]
 
@@ -241,6 +225,7 @@ epochs_range = range(1, len(merge_histories(history1, history2, 'accuracy')) + 1
 fig, axes = plt.subplots(1, 2, figsize=(14, 5))
 fig.suptitle(f'{MODEL_NAME.upper()} - Training History', fontsize=14, fontweight='bold')
 
+# Accuracy
 axes[0].plot(epochs_range, merge_histories(history1, history2, 'accuracy'), label='Train Acc')
 axes[0].plot(epochs_range, merge_histories(history1, history2, 'val_accuracy'), label='Val Acc')
 axes[0].axvline(x=EPOCHS_PHASE1, color='gray', linestyle='--', label='Fine-tune start')
@@ -249,6 +234,7 @@ axes[0].set_xlabel('Epoch')
 axes[0].legend()
 axes[0].grid(True, alpha=0.3)
 
+# Loss
 axes[1].plot(epochs_range, merge_histories(history1, history2, 'loss'), label='Train Loss')
 axes[1].plot(epochs_range, merge_histories(history1, history2, 'val_loss'), label='Val Loss')
 axes[1].axvline(x=EPOCHS_PHASE1, color='gray', linestyle='--', label='Fine-tune start')
@@ -261,13 +247,25 @@ plt.tight_layout()
 plt.savefig(os.path.join(OUTPUT_DIR, f"{MODEL_NAME}_training_curves.png"), dpi=150)
 plt.show()
 
+# ============================================================
+# CONFUSION MATRIX
+# ============================================================
 cm = confusion_matrix(true_classes, pred_classes)
+
 plt.figure(figsize=(8, 6))
-sns.heatmap(cm, annot=True, fmt='d', cmap='Purples',
-            xticklabels=class_labels, yticklabels=class_labels)
+sns.heatmap(
+    cm,
+    annot=True,
+    fmt='d',
+    cmap='Purples',
+    xticklabels=CLASS_NAMES,
+    yticklabels=CLASS_NAMES
+)
+
 plt.title(f'{MODEL_NAME.upper()} - Confusion Matrix\nTest Accuracy: {test_acc:.4f}')
 plt.ylabel('True Label')
 plt.xlabel('Predicted Label')
+
 plt.tight_layout()
 plt.savefig(os.path.join(OUTPUT_DIR, f"{MODEL_NAME}_confusion_matrix.png"), dpi=150)
 plt.show()

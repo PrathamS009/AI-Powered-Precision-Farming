@@ -1,7 +1,7 @@
 # ============================================================
 # Rice Leaf Disease Detection - EfficientNetB0
 # Classes: Brown Spot, Hispa, Leaf Blast, Leaf Scald, Healthy
-# Dataset: Kaggle Private Dataset - 'Rice Leaf Disease Dataset'
+# Dataset: Rice Leaf Disease Dataset
 # ============================================================
 
 import os
@@ -14,6 +14,7 @@ from sklearn.utils.class_weight import compute_class_weight
 import tensorflow as tf
 from tensorflow.keras import layers, models, callbacks
 from tensorflow.keras.applications import EfficientNetB0
+from tensorflow.keras.applications.efficientnet import preprocess_input  # expects [0, 255]
 from tensorflow.keras.preprocessing.image import ImageDataGenerator
 
 # ============================================================
@@ -23,21 +24,15 @@ MODEL_NAME      = "efficientnet_b0"
 IMG_SIZE        = (224, 224)
 BATCH_SIZE      = 32
 EPOCHS_PHASE1   = 10   # Train top layers only
-EPOCHS_PHASE2   = 20   # Fine-tune whole network
+EPOCHS_PHASE2   = 20   # Fine-tune top layers of base
 LEARNING_RATE1  = 1e-3
 LEARNING_RATE2  = 1e-5
 DROPOUT_RATE    = 0.4
 
-# --- UPDATE THESE PATHS for your environment ---
-# On Kaggle:
-TRAIN_DIR = "/kaggle/input/rice-leaf-disease-dataset/Train"
-TEST_DIR  = "/kaggle/input/rice-leaf-disease-dataset/Validation"
+TRAIN_DIR  = r"E:\GitHub_Desktop\AI-Powered-Precision-Farming\Crop_Disease_Detection\RiceLeaf\Rice_dataset\Train"
+TEST_DIR   = r"E:\GitHub_Desktop\AI-Powered-Precision-Farming\Crop_Disease_Detection\RiceLeaf\Rice_dataset\Validation"
+OUTPUT_DIR = rf"E:\GitHub_Desktop\AI-Powered-Precision-Farming\Crop_Disease_Detection\RiceLeaf\working\{MODEL_NAME}"
 
-# On Google Colab (after mounting Drive):
-# TRAIN_DIR = "/content/drive/MyDrive/Rice_Leaf_Disease_Dataset/train"
-# TEST_DIR  = "/content/drive/MyDrive/Rice_Leaf_Disease_Dataset/test"
-
-OUTPUT_DIR = f"/kaggle/working/{MODEL_NAME}"
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 
 CLASS_NAMES = ["Brown Spot", "Healthy", "Hispa", "Leaf Blast", "Leaf Scald"]
@@ -45,9 +40,11 @@ NUM_CLASSES = len(CLASS_NAMES)
 
 # ============================================================
 # DATA GENERATORS
+# NOTE: preprocess_input handles normalization — do NOT use rescale=1./255
+#       Using both would corrupt input values (rescale first, then preprocess_input)
 # ============================================================
 train_datagen = ImageDataGenerator(
-    rescale=1./255,
+    preprocessing_function=preprocess_input,   # expects raw [0, 255] — no rescale
     rotation_range=30,
     width_shift_range=0.2,
     height_shift_range=0.2,
@@ -60,7 +57,7 @@ train_datagen = ImageDataGenerator(
     validation_split=0.15
 )
 
-test_datagen = ImageDataGenerator(rescale=1./255)
+test_datagen = ImageDataGenerator(preprocessing_function=preprocess_input)
 
 train_generator = train_datagen.flow_from_directory(
     TRAIN_DIR,
@@ -103,6 +100,8 @@ print(f"\nClass weights: {class_weight_dict}")
 
 # ============================================================
 # BUILD MODEL
+# NOTE: include_preprocessing is NOT available in TF 2.15 Keras.
+#       We handle preprocessing via preprocess_input in the DataGenerator instead.
 # ============================================================
 def build_model(trainable_base=False):
     base_model = EfficientNetB0(
@@ -154,7 +153,7 @@ def get_callbacks(phase):
     ]
 
 # ============================================================
-# PHASE 1 — Train top layers only
+# PHASE 1 — Train top layers only (base frozen)
 # ============================================================
 print("\n" + "="*50)
 print("PHASE 1: Training top layers (base frozen)")
@@ -177,13 +176,19 @@ history1 = model.fit(
 )
 
 # ============================================================
-# PHASE 2 — Fine-tune entire network
+# PHASE 2 — Fine-tune top 30 layers of the full network
+# We unfreeze only the last 30 layers to avoid catastrophic
+# forgetting while still adapting higher-level features.
 # ============================================================
 print("\n" + "="*50)
-print("PHASE 2: Fine-tuning entire network")
+print("PHASE 2: Fine-tuning top 30 layers")
 print("="*50)
 
-model.trainable = True
+for layer in model.layers[:-30]:
+    layer.trainable = False
+for layer in model.layers[-30:]:
+    layer.trainable = True
+
 model.compile(
     optimizer=tf.keras.optimizers.Adam(learning_rate=LEARNING_RATE2),
     loss='categorical_crossentropy',
@@ -221,14 +226,12 @@ print("\nEvaluating on test set...")
 test_loss, test_acc = model.evaluate(test_generator)
 print(f"Test Accuracy: {test_acc:.4f} | Test Loss: {test_loss:.4f}")
 
-# Predictions
 test_generator.reset()
 preds = model.predict(test_generator, verbose=1)
 pred_classes = np.argmax(preds, axis=1)
 true_classes = test_generator.classes
 class_labels = list(test_generator.class_indices.keys())
 
-# Classification Report
 print("\nClassification Report:")
 print(classification_report(true_classes, pred_classes, target_names=class_labels))
 
@@ -243,7 +246,6 @@ epochs_range = range(1, len(merge_histories(history1, history2, 'accuracy')) + 1
 fig, axes = plt.subplots(1, 2, figsize=(14, 5))
 fig.suptitle(f'{MODEL_NAME.upper()} - Training History', fontsize=14, fontweight='bold')
 
-# Accuracy
 axes[0].plot(epochs_range, merge_histories(history1, history2, 'accuracy'), label='Train Acc')
 axes[0].plot(epochs_range, merge_histories(history1, history2, 'val_accuracy'), label='Val Acc')
 axes[0].axvline(x=EPOCHS_PHASE1, color='gray', linestyle='--', label='Fine-tune start')
@@ -252,7 +254,6 @@ axes[0].set_xlabel('Epoch')
 axes[0].legend()
 axes[0].grid(True, alpha=0.3)
 
-# Loss
 axes[1].plot(epochs_range, merge_histories(history1, history2, 'loss'), label='Train Loss')
 axes[1].plot(epochs_range, merge_histories(history1, history2, 'val_loss'), label='Val Loss')
 axes[1].axvline(x=EPOCHS_PHASE1, color='gray', linestyle='--', label='Fine-tune start')
@@ -265,7 +266,6 @@ plt.tight_layout()
 plt.savefig(os.path.join(OUTPUT_DIR, f"{MODEL_NAME}_training_curves.png"), dpi=150)
 plt.show()
 
-# Confusion Matrix
 cm = confusion_matrix(true_classes, pred_classes)
 plt.figure(figsize=(8, 6))
 sns.heatmap(cm, annot=True, fmt='d', cmap='Blues',

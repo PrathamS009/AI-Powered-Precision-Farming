@@ -1,7 +1,7 @@
 # ============================================================
 # Rice Leaf Disease Detection - MobileNetV3Large
 # Classes: Brown Spot, Hispa, Leaf Blast, Leaf Scald, Healthy
-# Dataset: Kaggle Private Dataset - 'Rice Leaf Disease Dataset'
+# Dataset: Rice Leaf Disease Dataset
 # ============================================================
 
 import os
@@ -14,6 +14,7 @@ from sklearn.utils.class_weight import compute_class_weight
 import tensorflow as tf
 from tensorflow.keras import layers, models, callbacks
 from tensorflow.keras.applications import MobileNetV3Large
+from tensorflow.keras.applications.mobilenet_v3 import preprocess_input  # expects [0, 255]
 from tensorflow.keras.preprocessing.image import ImageDataGenerator
 
 # ============================================================
@@ -28,15 +29,10 @@ LEARNING_RATE1  = 1e-3
 LEARNING_RATE2  = 1e-5
 DROPOUT_RATE    = 0.35
 
-# --- UPDATE THESE PATHS for your environment ---
-TRAIN_DIR = "/kaggle/input/rice-leaf-disease-dataset/train"
-TEST_DIR  = "/kaggle/input/rice-leaf-disease-dataset/test"
+TRAIN_DIR  = r"E:\GitHub_Desktop\AI-Powered-Precision-Farming\Crop_Disease_Detection\RiceLeaf\Rice_dataset\Train"
+TEST_DIR   = r"E:\GitHub_Desktop\AI-Powered-Precision-Farming\Crop_Disease_Detection\RiceLeaf\Rice_dataset\Validation"
+OUTPUT_DIR = rf"E:\GitHub_Desktop\AI-Powered-Precision-Farming\Crop_Disease_Detection\RiceLeaf\working\{MODEL_NAME}"
 
-# On Google Colab:
-# TRAIN_DIR = "/content/drive/MyDrive/Rice_Leaf_Disease_Dataset/train"
-# TEST_DIR  = "/content/drive/MyDrive/Rice_Leaf_Disease_Dataset/test"
-
-OUTPUT_DIR = f"/kaggle/working/{MODEL_NAME}"
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 
 CLASS_NAMES = ["Brown Spot", "Healthy", "Hispa", "Leaf Blast", "Leaf Scald"]
@@ -44,9 +40,10 @@ NUM_CLASSES = len(CLASS_NAMES)
 
 # ============================================================
 # DATA GENERATORS
+# NOTE: preprocess_input handles normalization — do NOT use rescale=1./255
 # ============================================================
 train_datagen = ImageDataGenerator(
-    rescale=1./255,
+    preprocessing_function=preprocess_input,   # expects raw [0, 255] — no rescale
     rotation_range=30,
     width_shift_range=0.2,
     height_shift_range=0.2,
@@ -58,7 +55,7 @@ train_datagen = ImageDataGenerator(
     validation_split=0.15
 )
 
-test_datagen = ImageDataGenerator(rescale=1./255)
+test_datagen = ImageDataGenerator(preprocessing_function=preprocess_input)
 
 train_generator = train_datagen.flow_from_directory(
     TRAIN_DIR,
@@ -101,6 +98,8 @@ print(f"\nClass weights: {class_weight_dict}")
 
 # ============================================================
 # BUILD MODEL
+# NOTE: include_preprocessing is NOT available in TF 2.15 Keras.
+#       Preprocessing is handled via preprocess_input in the DataGenerator.
 # ============================================================
 def build_model(trainable_base=False):
     base_model = MobileNetV3Large(
@@ -152,7 +151,7 @@ def get_callbacks(phase):
     ]
 
 # ============================================================
-# PHASE 1 — Train top layers only
+# PHASE 1 — Train top layers only (base frozen)
 # ============================================================
 print("\n" + "="*50)
 print("PHASE 1: Training top layers (base frozen)")
@@ -175,13 +174,20 @@ history1 = model.fit(
 )
 
 # ============================================================
-# PHASE 2 — Fine-tune entire network
+# PHASE 2 — Fine-tune top 20 layers
+# MobileNetV3Large is a lightweight model (~200 layers total).
+# Unfreezing all layers risks destroying the depthwise separable
+# conv features that make it efficient. Top-20 is a safe balance.
 # ============================================================
 print("\n" + "="*50)
-print("PHASE 2: Fine-tuning entire network")
+print("PHASE 2: Fine-tuning top 20 layers")
 print("="*50)
 
-model.trainable = True
+for layer in model.layers[:-20]:
+    layer.trainable = False
+for layer in model.layers[-20:]:
+    layer.trainable = True
+
 model.compile(
     optimizer=tf.keras.optimizers.Adam(learning_rate=LEARNING_RATE2),
     loss='categorical_crossentropy',
