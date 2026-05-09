@@ -1,0 +1,12 @@
+date,city,temperature,humidity,condition,wind_speed,pressure,rain_1h,visibility,Date & Time,City,Temperature (°C),Condition
+2026-05-08 19:23,Pune,34.52,13.0,Broken Clouds,2.75,1007.0,0.0,10.0,,,,
+2026-05-08 19:23,goa,30.21,74.0,Overcast Clouds,1.8,1006.0,0.0,10.0,,,,
+2026-05-09 04:25,Pune,302.26,36.0,Broken Clouds,,,,,,,,
+2026-05-09 04:31,Mumbai,29.99,,Mist,,,,,,,,
+,,,,,,,,,"May 09, 2026 04:56 AM",Pune,29.11,Broken Clouds
+,,,,,,,,,"May 09, 2026 05:08 AM",Pune,29.11,Broken Clouds
+,,,,,,,,,"May 09, 2026 05:12 AM",Pune,29.11,Broken Clouds
+,,,,,,,,,"May 09, 2026 05:15 AM",Delhi,26.05,Haze
+,,,,,,,,,"May 09, 2026 05:50 AM",Chennai,26.49,Scattered Clouds
+,,,,,,,,,"May 09, 2026 05:50 AM",Goa,27.21,Broken Clouds
+,,,,,,,,,"May 09, 2026 10:51 AM",Pune,33.56,Scattered Clouds

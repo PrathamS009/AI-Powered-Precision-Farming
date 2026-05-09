@@ -1,6 +1,7 @@
 import os
 import numpy as np
-from tensorflow.keras.preprocessing.image import ImageDataGenerator, img_to_array, load_img, save_img
+import tensorflow
+from keras.preprocessing.image import ImageDataGenerator, img_to_array, load_img, save_img
 import random
 
 # -------- CONFIG --------
